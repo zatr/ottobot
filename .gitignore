@@ -1,0 +1,6 @@
+__pycache__
+*.pyc
+*.swp
+*.jar
+.idea
+*settings.py
