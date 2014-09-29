@@ -397,8 +397,9 @@ def build_ticket_dict(driver, ticket_id):
             'sql_version': get_element_by_class(fieldset, 'select_sql_ticket'),
             'mail_server': get_element_by_name(fieldset, 'mail_s'),
             'problem_summary': get_element_by_name(fieldset, 'summary'),
-            'problem_description':
-                fieldset.find_element_by_xpath('//textarea[@name="description"]').get_attribute('innerHTML'),
+            'problem_description': fieldset.find_element_by_xpath(
+                '//textarea[@name="description"]').get_attribute('innerHTML').replace(
+                    '&lt;p&gt;', '').replace('&lt;/p&gt;', '').replace('&nbsp;', ''),
             'attachments': save_attachments(fieldset)
             }
 
