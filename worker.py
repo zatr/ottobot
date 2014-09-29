@@ -391,6 +391,7 @@ def build_ticket_dict(driver, ticket_id):
             'contact_name': get_element_by_name(fieldset, 'contact'),
             'email': get_element_by_name(fieldset, 'email'),
             'phone': get_element_by_name(fieldset, 'phone'),
+            'region': get_element_by_class(fieldset, 'ticket_region_view'),
             'product': get_element_by_class(fieldset, 'ticket_products'),
             'product_version': get_element_by_name(fieldset, 'product_version'),
             'oper_sys': get_element_by_class(fieldset, 'select_os_ticket'),
@@ -450,13 +451,15 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
         for w in driver.window_handles:
             if w not in open_windows_before_popup:
                 return w
-    def select_request_type(driver, product):
+    def open_popup(driver, selector_id):
         existing_windows = driver.window_handles
-        request_type = element_wait(driver, 'ctl00_ContentPlaceHolder1_hlsys_field33', By.ID)
+        request_type = element_wait(driver, selector_id, By.ID)
         request_type.click()
         time.sleep(1)
         pop_up = get_popup_window(driver, existing_windows)
         driver.switch_to.window(pop_up)
+    def select_request_type(driver, product):
+        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field33')
         product_list = []
         for p in settings.products_acronyms:
             product_list.append(p)
@@ -472,10 +475,23 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
             clear = element_wait(driver, 'ctl00_ContentPlaceHolder1_hlClear', By.ID)
             clear.click()
         driver.switch_to.window(driver.window_handles[0])
+    def select_region(driver, region):
+        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field43selsite')
+        app_regions = driver.find_elements_by_tag_name('a')
+        uk_regions = ('Europe', 'Middle East')
+        for r in app_regions:
+            if r.text == region:
+                r.click()
+                break
+            elif r.text == 'UK' and region in uk_regions:
+                r.click()
+                break
+        driver.switch_to.window(driver.window_handles[0])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field6', By.ID).send_keys(ticket_data['customer_id'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID).send_keys(ticket_data['contact_name'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield3', By.ID).send_keys(ticket_data['email'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield4', By.ID).send_keys(ticket_data['phone'])
+    select_region(driver, ticket_data['region'])
     request_source_dropdown_id, select_web_submission_id = 'x:654027360.3:mkr:Button', 'x:654027360.13:adr:5'
     select_dropdown_item(driver, request_source_dropdown_id, select_web_submission_id)
     caller_status_dropdown_id, select_customer_id = 'x:654027362.3:mkr:Button', 'x:654027362.10:adr:2'
