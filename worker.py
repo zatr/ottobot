@@ -588,12 +588,28 @@ def copy_ticket_from_client_to_app(driver, ticket_id):
     enter_client_ticket_data_into_request(driver, ticket_details)
 
 
+def open_browser_connect_to_site(site, assert_text):
+    dvr = webdriver.Firefox()
+    dvr.get(site)
+    assert assert_text == dvr.title
+    return dvr
+
+
+import argparse
+
+
 if __name__ == '__main__':
-    driver = webdriver.Firefox()
-    target_url = settings.app_url
-    assert_text = settings.app_title_assert
-    driver.get(target_url)
-    assert assert_text == driver.title
-    login_analyst(driver)
-    product_update_processor(driver)
-    driver.quit()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-u', '--update_notifier', help='Run automatic update notifier.', action='store_true')
+    parser.add_argument('-t', '--test_data', help='Run update notifier with test data.', action='store_true')
+    parser.add_argument('-c', '--copy_ticket', help='Copy ticket to request')
+    args = parser.parse_args()
+    if args.update_notifier:
+        driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
+        login_analyst(driver)
+        product_update_processor(driver, args.test_data)
+        driver.quit()
+    elif args.copy_ticket:
+        driver = open_browser_connect_to_site(settings.client_url, settings.client_title_assert)
+        copy_ticket_from_client_to_app(driver, args.copy_ticket)
+        driver.quit()
