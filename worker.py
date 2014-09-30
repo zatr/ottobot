@@ -53,7 +53,12 @@ def open_connect_login_analyst():
 
 def go_to_request(driver, rid, base_url=settings.app_url):
     driver.get('%s/ReqInfo.aspx?sys_request_id=%i' % (base_url, rid))
-    print '\nOpened Request', rid
+    try:
+        element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field1', By.ID, 2)
+        print '\nOpened Request', rid
+        return True
+    except:
+        print 'Request not found:', rid
 
 
 def go_to_item(driver, problem_or_change, item_id):
@@ -151,25 +156,41 @@ def get_psummary_linked_requests(items, bug_or_change):
         else:
             print 'No requests linked to %s %i!' % (bug_or_change, item_number)
     connect_to_db().close()
-    print '\nAll requests queued for notification:'
+    print '\nAll linked requests queued for notification:'
     for rid in sorted(all_linked_rids):
         print rid
     return linked_requests
 
 
-def generate_comment(driver, item_number, item_summary):
-    def collect_cust_fname_email():
-        usr_customer_name = element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID)
-        first_name = usr_customer_name.get_attribute('value').split()[0]
-        usr_cust_email = element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield3', By.ID)
-        email_address = usr_cust_email.get_attribute('value')
-        return first_name, email_address
+def collect_cust_fname_email(driver):
+    usr_customer_name = element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID)
+    first_name = usr_customer_name.get_attribute('value').split()[0]
+    usr_cust_email = element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield3', By.ID)
+    email_address = usr_cust_email.get_attribute('value')
+    return first_name, email_address
+
+
+def generate_product_update_comment_request_on_notification(driver):
+    def get_comment():
+        template = open(settings.templates_path + '/on_notification_notification.html')
+        text = template.read()
+        template.close()
+        return text
+    first_name, email_address = collect_cust_fname_email(driver)
+    comment_text = get_comment() % (first_name,
+                                    release_info.product_name,
+                                    release_info.update_version,
+                                    settings.client_url)
+    return email_address, comment_text
+
+
+def generate_product_update_comment_linked_request(driver, item_number, item_summary):
     def get_comment(boc):
         template = open(settings.templates_path + '/%s_notification.html' % boc)
         text = template.read()
         template.close()
         return text
-    first_name, email_address = collect_cust_fname_email()
+    first_name, email_address = collect_cust_fname_email(driver)
     comment_text = get_comment(release_info.bug_or_change) % (first_name,
                                                               release_info.product_name,
                                                               release_info.update_version,
@@ -199,7 +220,14 @@ def comment_create(driver, email_address, comment_text):
 
 
 def comment_save_to_linked_request(driver, bug_or_change_id, problem_summary):
-    email, comment = generate_comment(driver, bug_or_change_id, problem_summary)
+    email, comment = generate_product_update_comment_linked_request(
+        driver, bug_or_change_id, problem_summary)
+    comment_create(driver, email, comment)
+    print 'Comment update notification sent to: %s' % email
+
+
+def comment_save_to_request_on_notification(driver):
+    email, comment = generate_product_update_comment_request_on_notification(driver)
     comment_create(driver, email, comment)
     print 'Comment update notification sent to: %s' % email
 
@@ -222,26 +250,32 @@ def select_dropdown_item(driver, button_id, item_id):
     item.click()
 
 
-def set_request_pending_status_completed(driver):
+def set_request_pending_status(driver, status):
     driver.switch_to.default_content()
     element_wait(driver, 'x:654027361.4:mkr:ButtonImage', By.ID).click()
-    element_wait(driver, 'Completed', By.LINK_TEXT).click()
-    print "Pending status set to 'Completed'"
+    element_wait(driver, status, By.LINK_TEXT).click()
+    print 'Pending status updated:', status
 
 
-def set_request_status_closed(driver):
+def set_request_status(driver, status):
     try:
         change_request_status = element_wait(driver, 'ctl00_ContentPlaceHolder1_imgbtnsys_button2', By.ID)
         change_request_status.click()
         dropdown = element_wait(driver, 'x:738609024.4:mkr:ButtonImage', By.ID)
         dropdown.click()
-        select_closed = element_wait(driver, 'Closed', By.LINK_TEXT, 2)
+        select_closed = element_wait(driver, status, By.LINK_TEXT, 2)
         select_closed.click()
         save = element_wait(driver, 'ctl00_ContentPlaceHolder1_imgSaveStatus', By.ID)
         save.click()
-        print 'Request closed'
+        try:
+            confirm_suspend = element_wait(
+                driver, 'ctl00_ContentPlaceHolder1_dialogReqSuspension_tmpl_imgChgStatus', By.ID)
+            confirm_suspend.click()
+        except:
+            pass
+        print 'Request status updated:', status
     except:
-        print 'Request already closed'
+        print 'Request status already set:', status
 
 
 def set_product_version_unknown_if_empty(driver):
@@ -260,14 +294,16 @@ def apply_changes_to_linked_requests(driver, pslr):
             comment_save_to_linked_request(driver, bug_or_change_id,
                                            pslr[bug_or_change_id].problem_summary)
             set_request_solution(driver, release_info.update_version)
-            set_request_pending_status_completed(driver)
-            set_request_status_closed(driver)
+            set_request_pending_status(driver, 'Completed')
+            set_request_status(driver, 'Closed')
 
 
-def set_item_list_status_closed(driver, items, problem_or_change):
-    for item in items:
-        go_to_item(driver, problem_or_change, item)
-        set_request_status_closed(driver)
+def apply_changes_to_requests_on_notification(driver, rids_on_notification):
+    for rid in rids_on_notification:
+        if go_to_request(driver, rid):
+            comment_save_to_request_on_notification(driver)
+            set_request_pending_status(driver, 'Waiting for Customer')
+            set_request_status(driver, 'Hold')
 
 
 def rename_bug_to_problem():
@@ -285,59 +321,87 @@ def prompt_for_release_info(release_info):
           'and trigger emails to customers. Choose product, specify version, ' \
           'and select cells from the Google worksheet to build problem/change list. ' \
           % settings.app_title_assert
-    product = update_version = bug_or_change = cell_range = ''
+    on_notification = []
     while True:
-        while not product:
+        while True:
             print 'Select from the following products:'
             for p in settings.products_acronyms:
-                print '(%s)%s' % (p[0].upper, p[1:])
-            entry = raw_input('Select release product:' % ()).lower()
+                print '(%s)%s' % (p[0].upper(), p[1:])
+            entry = raw_input('Select release product: ').lower()
             for p in settings.products_acronyms:
-                if entry in (p.lower, p[0].lower):
+                if entry in (p.lower(), p[0].lower()):
                     product = p
-            if not product:
+                    break
+            if product:
+                break
+            else:
                 print 'Invalid entry.'
-        while not update_version:
+        while True:
             update_version = raw_input('Release version number? (e.g. 6.4, 6.4.6.1, 6.5.2): ')
-        while not bug_or_change:
+            if update_version:
+                break
+        while True:
             bug_or_change = raw_input('Notify users for (b)ugs or (c)hanges?  ').lower()
             if bug_or_change in ('b', 'bug', 'bugs'):
                 bug_or_change = 'bug'
+                break
             elif bug_or_change in ('c', 'change', 'changes'):
                 bug_or_change = 'change'
+                break
             else:
                 bug_or_change = ''
                 print 'Invalid entry.'
-        while not cell_range:
-            cell_range = raw_input('Enter cell range of the %s numbers from the Google test sheet titled: %s %s Test Sheet '
-                                   'Non-integer cells will be omitted. (e.g. B8:B19, B21:B26): ' % (bug_or_change,
-                                                                                                    product,
-                                                                                                    update_version))
-        print '\n\nRELEASE SUMMARY:\n'
-        print 'Product: %s' % product
-        print 'Version: %s' % update_version
-        print 'Bugs/Changes: %ss' % bug_or_change
-        print 'Cell Range: %s\n' % cell_range
-        confirm = raw_input('Confirm? (Y)es or (N)o: ').lower()
-        if confirm in ('y', 'yes'):
-            return release_info(product, update_version, bug_or_change, cell_range)
-        elif confirm in ('n', 'no'):
-            return False
-        else:
-            print 'Invalid entry.'
+        while True:
+            cell_range = raw_input('Enter cell range of the %s numbers from the Google '
+                                   'test sheet titled: "%s %s Test Sheet." '
+                                   'Non-integer cells will be omitted. '
+                                   '(e.g. B8:B19, B21:B26): ' % (bug_or_change,
+                                                                 product,
+                                                                 update_version))
+            if cell_range:
+                break
+        while True:
+            rid = raw_input('Enter a Request ID On Notification for the update. Press ENTER when finished. ')
+            if not rid:
+                break
+            else:
+                try:
+                    on_notification.append(int(rid))
+                except:
+                    print 'Invalid entry.'
+        while True:
+            print '\n\nRELEASE SUMMARY:\n'
+            print 'Product: %s' % product
+            print 'Version: %s' % update_version
+            print 'Bugs/Changes: %ss' % bug_or_change
+            print 'Cell Range: %s\n' % cell_range
+            print 'On notification: %s\n' % on_notification
+            confirm = raw_input('Confirm? (Y)es or (N)o: ').lower()
+            if confirm in ('y', 'yes'):
+                return release_info(product,
+                                    update_version,
+                                    bug_or_change,
+                                    cell_range,
+                                    on_notification)
+            elif confirm in ('n', 'no'):
+                break
+            else:
+                print 'Invalid entry.'
 
 
 def product_update_processor(driver, use_test_data=False):
     release_data = namedtuple('Release_Info', ['product_name',
                                                'update_version',
                                                'bug_or_change',
-                                               'cell_range'])
+                                               'cell_range',
+                                               'on_notification'])
     global release_info
     if use_test_data:
         release_info = release_data(settings.test_release_info['product_name'],
                                     settings.test_release_info['update_version'],
                                     settings.test_release_info['bug_or_change'],
-                                    settings.test_release_info['cell_range'])
+                                    settings.test_release_info['cell_range'],
+                                    settings.test_release_info['on_notification'])
     else:
         release_info = prompt_for_release_info(release_data)
     item_list = get_item_number_list(release_info.cell_range,
@@ -345,6 +409,8 @@ def product_update_processor(driver, use_test_data=False):
                                      release_info.update_version)
     psummary_linked_requests = get_psummary_linked_requests(item_list, release_info.bug_or_change)
     apply_changes_to_linked_requests(driver, psummary_linked_requests)
+    apply_changes_to_requests_on_notification(driver, release_info.on_notification)
+
 
 
 def client_login(driver):
@@ -520,3 +586,14 @@ def copy_ticket_from_client_to_app(driver, ticket_id):
     login_analyst(driver)
     create_new_request(driver)
     enter_client_ticket_data_into_request(driver, ticket_details)
+
+
+if __name__ == '__main__':
+    driver = webdriver.Firefox()
+    target_url = settings.app_url
+    assert_text = settings.app_title_assert
+    driver.get(target_url)
+    assert assert_text == driver.title
+    login_analyst(driver)
+    product_update_processor(driver)
+    driver.quit()

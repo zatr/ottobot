@@ -25,7 +25,8 @@ products_acronyms = {'Product1': 'P1',
 test_release_info = {'product_name': 'Product1',
                      'update_version': '1.2.3',
                      'bug_or_change': 'bug',
-                     'cell_range': 'B1:B19'}
+                     'cell_range': 'B1:B19',
+                     'on_notification': [12345, 67890]}
 
 google_user = 'google_user@gmail.com'
 google_pass = 'pass'
