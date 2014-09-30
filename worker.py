@@ -510,13 +510,16 @@ def select_product_version(driver, product_version):
 
 
 import time
+import os
 
 
 def enter_client_ticket_data_into_request(driver, ticket_data):
+
     def get_popup_window(driver, open_windows_before_popup):
         for w in driver.window_handles:
             if w not in open_windows_before_popup:
                 return w
+
     def open_popup(driver, selector_id):
         existing_windows = driver.window_handles
         request_type = element_wait(driver, selector_id, By.ID)
@@ -524,6 +527,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
         time.sleep(1)
         pop_up = get_popup_window(driver, existing_windows)
         driver.switch_to.window(pop_up)
+
     def select_request_type(driver, product):
         open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field33')
         product_list = []
@@ -541,6 +545,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
             clear = element_wait(driver, 'ctl00_ContentPlaceHolder1_hlClear', By.ID)
             clear.click()
         driver.switch_to.window(driver.window_handles[0])
+
     def select_region(driver, region):
         open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field43selsite')
         app_regions = driver.find_elements_by_tag_name('a')
@@ -553,6 +558,24 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                 r.click()
                 break
         driver.switch_to.window(driver.window_handles[0])
+
+    def upload_and_delete_attachments(driver):
+        element_wait(driver, 'x:324881036.5:mkr:ti4', By.ID).click()
+        element_wait(
+            driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAttach', By.ID).click()
+        file_list = os.listdir(settings.attachments_path)
+        for file_name in file_list:
+            file_path = settings.attachments_path + '/' + file_name
+            element_wait(
+                driver, 'ctl00_ContentPlaceHolder1_h2Add', By.ID).click()
+            element_wait(driver,
+                         'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_fuMain',
+                         By.ID).send_keys(file_path)
+            driver.find_element_by_id(
+                'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_btnUpload').click()
+            os.remove(file_path)
+        element_wait(driver, '//img[@title="Back"]', By.XPATH).click()
+
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field6', By.ID).send_keys(ticket_data['customer_id'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID).send_keys(ticket_data['contact_name'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield3', By.ID).send_keys(ticket_data['email'])
@@ -570,6 +593,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                                                                        ticket_data['sql_version'],
                                                                        ticket_data['mail_server'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield5', By.ID).send_keys(environment_details)
+    upload_and_delete_attachments(driver)
     problem_desc_tab = element_wait(driver, 'x:324881036.1:mkr:ti0', By.ID)
     problem_desc_tab.click()
     frame_wait(driver, 'ctl00_ContentPlaceHolder1_tabMain_htmlsys_field36_contentIframe')
