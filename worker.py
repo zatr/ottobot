@@ -429,6 +429,7 @@ def open_client_ticket(driver, ticket_id):
 
 
 import urllib2
+import os
 
 
 def save_attachments(fieldset):
@@ -437,7 +438,7 @@ def save_attachments(fieldset):
     file_list = []
     for a in attachments:
         response = urllib2.urlopen(a.get_attribute('href'))
-        f = open(settings.attachments_path + '/' + a.text, 'w')
+        f = open(os.path.join(settings.attachments_path, a.text), 'w')
         f.write(response.read())
         f.close()
         file_list.append(a.text)
@@ -510,7 +511,6 @@ def select_product_version(driver, product_version):
 
 
 import time
-import os
 
 
 def enter_client_ticket_data_into_request(driver, ticket_data):
@@ -565,7 +565,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
             driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAttach', By.ID).click()
         file_list = os.listdir(settings.attachments_path)
         for file_name in file_list:
-            file_path = settings.attachments_path + '/' + file_name
+            file_path = os.path.join(settings.attachments_path, file_name)
             element_wait(
                 driver, 'ctl00_ContentPlaceHolder1_h2Add', By.ID).click()
             element_wait(driver,
@@ -622,7 +622,7 @@ def open_browser_connect_to_site(site, assert_text):
 import argparse
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-u', '--update_notifier', help='Run automatic update notifier.', action='store_true')
     parser.add_argument('-t', '--test_data', help='Run update notifier with test data.', action='store_true')
@@ -632,8 +632,11 @@ if __name__ == '__main__':
         driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
         login_analyst(driver)
         product_update_processor(driver, args.test_data)
-        driver.quit()
     elif args.copy_ticket:
         driver = open_browser_connect_to_site(settings.client_url, settings.client_title_assert)
         copy_ticket_from_client_to_app(driver, args.copy_ticket)
-        driver.quit()
+    driver.quit()
+
+
+if __name__ == '__main__':
+    main()
