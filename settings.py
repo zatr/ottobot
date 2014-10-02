@@ -25,7 +25,7 @@ products_acronyms = {'Product1': 'P1',
 test_release_info = {'product_name': 'Product1',
                      'update_version': '1.2.3',
                      'bug_or_change': 'bug',
-                     'cell_range': 'B1:B19',
+                     'cell_range': 'A1:A10',
                      'on_notification': [12345, 67890]}
 
 google_user = 'google_user@gmail.com'
@@ -39,3 +39,8 @@ client_title_assert = 'page title'
 client_username = 'user'
 client_password = 'pass'
 ticket_id = '12345'
+
+leapfile_url = 'http://site.leapfile.com'
+leapfile_title_assert = 'Page title'
+leapfile_username = 'username'
+leapfile_password = 'password'
