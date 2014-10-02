@@ -157,7 +157,7 @@ def get_psummary_linked_requests(items, bug_or_change):
             linked_requests[item_number] = psummary_linked_req(item_summary, request_list)
         else:
             print 'No requests linked to %s %i!' % (bug_or_change, item_number)
-    connect_to_db().close()
+    cursor.close()
     print '\nAll linked requests queued for notification:'
     for rid in sorted(all_linked_rids):
         print rid
@@ -598,12 +598,28 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
 
 
 def copy_ticket_from_client_to_app(driver, ticket_id):
+
+    def confirm_request_saved(problem_summary):
+        sql = ('select sys_request_id, usr_ticket_id, sys_problemsummary '
+               'from request where usr_ticket_id = %s and '
+               'sys_problemsummary = "%s"') % (ticket_id, problem_summary)
+        cursor = connect_to_db().cursor()
+        cursor.execute(sql)
+        row = cursor.fetchone()
+        cursor.close()
+        if not row:
+            raise Exception('Request not found. Copy failed.')
+        else:
+            print 'Ticket successfully copied to Request:', row[0]
+
     client_login(driver)
     ticket_details = get_client_ticket_details(driver, ticket_id)
     driver.get(settings.app_url)
     login_analyst(driver)
     create_new_request(driver)
     enter_client_ticket_data_into_request(driver, ticket_details)
+    confirm_request_saved(ticket_details['problem_summary'])
+
 
 
 def open_browser_connect_to_site(site, assert_text):
