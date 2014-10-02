@@ -115,22 +115,17 @@ def connect_to_db():
 
 
 def sql_select_linked_requests(item_number, bug_or_change):
-    if bug_or_change == 'bug':
-        return ('select req_problem_change.sys_problem_id, request.sys_request_id, '
-                'usr_Customer_Name, usr_Cust_Email, problem.sys_problem_summary '
-                'from request join req_problem_change '
-                'on request.sys_request_id = req_problem_change.sys_request_id '
-                'join problem '
-                'on req_problem_change.sys_problem_id = problem.sys_problem_id '
-                'where req_problem_change.sys_problem_id = %i') % item_number
-    if bug_or_change == 'change':
-        return ('select req_problem_change.sys_change_id, request.sys_request_id, '
-                'usr_Customer_Name, usr_Cust_Email, change.sys_change_summary '
-                'from request join req_problem_change '
-                'on request.sys_request_id = req_problem_change.sys_request_id '
-                'join change '
-                'on req_problem_change.sys_change_id = change.sys_change_id '
-                'where req_problem_change.sys_change_id = %i') % item_number
+    poc = rename_bug_to_problem(bug_or_change)
+    sql = ('select req_problem_change.sys_%s_id, request.sys_request_id, '
+           'usr_Customer_Name, usr_Cust_Email, %s.sys_%s_summary '
+           'from request join req_problem_change '
+           'on request.sys_request_id = req_problem_change.sys_request_id '
+           'join %s '
+           'on req_problem_change.sys_%s_id = %s.sys_%s_id '
+           'where req_problem_change.sys_%s_id = %i') % (poc, poc, poc, poc,
+                                                         poc, poc, poc, poc,
+                                                         item_number)
+    return sql
 
 
 from collections import defaultdict, namedtuple
