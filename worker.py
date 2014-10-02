@@ -97,6 +97,13 @@ def get_item_number_list(cell_range, product, version):
     return item_list
 
 
+def rename_bug_to_problem(boc):
+    if boc == 'bug':
+        return 'problem'
+    else:
+        return boc
+
+
 import pyodbc
 
 
@@ -304,15 +311,6 @@ def apply_changes_to_requests_on_notification(driver, rids_on_notification):
             comment_save_to_request_on_notification(driver)
             set_request_pending_status(driver, 'Waiting for Customer')
             set_request_status(driver, 'Hold')
-
-
-def rename_bug_to_problem():
-    if release_info.bug_or_change == 'bug':
-        return 'problem'
-    if release_info.bug_or_change == 'change':
-        return 'change'
-    else:
-        print 'How did you even do this?'
 
 
 def prompt_for_release_info(release_info):
@@ -560,21 +558,22 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
         driver.switch_to.window(driver.window_handles[0])
 
     def upload_and_delete_attachments(driver):
-        element_wait(driver, 'x:324881036.5:mkr:ti4', By.ID).click()
-        element_wait(
-            driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAttach', By.ID).click()
         file_list = os.listdir(settings.attachments_path)
-        for file_name in file_list:
-            file_path = os.path.join(settings.attachments_path, file_name)
+        if file_list:
+            element_wait(driver, 'x:324881036.5:mkr:ti4', By.ID).click()
             element_wait(
-                driver, 'ctl00_ContentPlaceHolder1_h2Add', By.ID).click()
-            element_wait(driver,
-                         'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_fuMain',
-                         By.ID).send_keys(file_path)
-            driver.find_element_by_id(
-                'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_btnUpload').click()
-            os.remove(file_path)
-        element_wait(driver, '//img[@title="Back"]', By.XPATH).click()
+                driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAttach', By.ID).click()
+            for file_name in file_list:
+                file_path = os.path.join(settings.attachments_path, file_name)
+                element_wait(
+                    driver, 'ctl00_ContentPlaceHolder1_h2Add', By.ID).click()
+                element_wait(driver,
+                             'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_fuMain',
+                             By.ID).send_keys(file_path)
+                driver.find_element_by_id(
+                    'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_btnUpload').click()
+                os.remove(file_path)
+            element_wait(driver, '//img[@title="Back"]', By.XPATH).click()
 
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field6', By.ID).send_keys(ticket_data['customer_id'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID).send_keys(ticket_data['contact_name'])
