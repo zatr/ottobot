@@ -44,3 +44,5 @@ leapfile_url = 'http://site.leapfile.com'
 leapfile_title_assert = 'Page title'
 leapfile_username = 'username'
 leapfile_password = 'password'
+
+fileserver_url = 'http://fileserver'

@@ -29,6 +29,13 @@ def open_browser():
         print 'Error: Could not start Selenium WebDriver (Firefox)'
 
 
+def open_browser_connect_to_site(site, assert_text):
+    dvr = webdriver.Firefox()
+    dvr.get(site)
+    assert assert_text == dvr.title
+    return dvr
+
+
 import settings
 
 
@@ -66,6 +73,21 @@ def go_to_item(driver, problem_or_change, item_id):
                                                 problem_or_change,
                                                 problem_or_change,
                                                 item_id))
+
+
+def client_login(driver):
+    username = driver.find_element_by_id('req1')
+    username.send_keys(settings.client_username)
+    password = driver.find_element_by_id('req2')
+    password.send_keys(settings.client_password)
+    login = driver.find_element_by_class_name('blueLoginBtn')
+    login.click()
+
+
+def open_client_ticket(driver, ticket_id):
+    tickets = element_wait(driver, 'Tickets', By.LINK_TEXT)
+    tickets.click()
+    driver.get(settings.ticket_url + ticket_id)
 
 
 import gspread
@@ -107,11 +129,42 @@ def rename_bug_to_problem(boc):
 import pyodbc
 
 
-def connect_to_db():
+def db_connect():
+    db_connect_string = settings.db_connect_string
     try:
-        return pyodbc.connect(''.join(settings.db_connect_string))
+        return pyodbc.connect(''.join(db_connect_string))
     except:
-        print 'Database connection failed. Check settings.'
+        raise Exception('SQL Error: Failed to connect to server: ' +
+                        db_connect_string[0] +
+                        db_connect_string[1] +
+                        db_connect_string[2] +
+                        db_connect_string[3] +
+                        'PWD=********;' +
+                        db_connect_string[5])
+
+
+import inspect
+
+
+def whoisparent():
+    return inspect.stack()[2][3]
+
+
+def exec_sql_read(query):
+    cursor = db_connect().cursor()
+    try:
+        cursor.execute(query)
+        results = []
+        while 1:
+            row = cursor.fetchone()
+            if not row:
+                break
+            results.append(row)
+        return results
+    except:
+        print 'SQL Error: Query failed in function: %s' % whoisparent()
+    finally:
+        cursor.close()
 
 
 def sql_select_linked_requests(item_number, bug_or_change):
@@ -137,7 +190,7 @@ def get_psummary_linked_requests(items, bug_or_change):
                                                            'requests'])
     all_linked_rids = []
     print '\nLoading requests linked to %ss:' % bug_or_change, items
-    cursor = connect_to_db().cursor()
+    cursor = db_connect().cursor()
     for item_number in items:
         try:
             cursor.execute(sql_select_linked_requests(item_number, bug_or_change))
@@ -182,24 +235,47 @@ def generate_product_update_comment_request_on_notification(driver):
     comment_text = get_comment() % (first_name,
                                     release_info.product_name,
                                     release_info.update_version,
-                                    settings.client_url)
+                                    settings.client_url,
+                                    )
     return email_address, comment_text
 
 
-def generate_product_update_comment_linked_request(driver, item_number, item_summary):
-    def get_comment(boc):
-        template = open(settings.templates_path + '/%s_notification.html' % boc)
-        text = template.read()
-        template.close()
-        return text
+def generate_product_update_comment_linked_request(driver, item_number, item_summary, ticket_id, update_leapfile):
+    boc = release_info.bug_or_change
     first_name, email_address = collect_cust_fname_email(driver)
-    comment_text = get_comment(release_info.bug_or_change) % (first_name,
-                                                              release_info.product_name,
-                                                              release_info.update_version,
-                                                              item_number,
-                                                              item_summary,
-                                                              settings.client_url)
+    variables = (first_name,
+                 release_info.product_name,
+                 release_info.update_version,
+                 item_number,
+                 item_summary,
+                 settings.client_url,
+                 )
+    if ticket_id:
+        template = open(os.path.join(settings.templates_path, '%s_notification_ticket.html' % boc))
+    elif update_leapfile:
+        template = open(os.path.join(settings.templates_path, 'leapfile_update_notification.html'))
+        variables = variables[:-1]
+    else:
+        template = open(os.path.join(settings.templates_path, '%s_notification.html' % boc))
+    text = template.read()
+    template.close()
+    comment_text = text % variables
     return email_address, comment_text
+
+
+def generate_leapfile_email_body(driver, item_number, item_summary):
+    boc = release_info.bug_or_change
+    template = open(os.path.join(settings.templates_path, '%s_leapfile_email_body.html' % boc))
+    text = template.read()
+    template.close()
+    first_name, email_address = collect_cust_fname_email(driver)
+    email_body = text % (first_name,
+                         release_info.product_name,
+                         release_info.update_version,
+                         item_number,
+                         item_summary,
+                         )
+    return email_address, email_body
 
 
 def comment_create(driver, email_address, comment_text):
@@ -221,11 +297,33 @@ def comment_create(driver, email_address, comment_text):
     save_comment.click()
 
 
-def comment_save_to_linked_request(driver, bug_or_change_id, problem_summary):
+def client_comment_create(ticket_id, comment_text):
+    driver = open_browser_connect_to_site(
+        settings.client_url, settings.client_title_assert)
+    client_login(driver)
+    open_client_ticket(driver, ticket_id.get_attribute('value'))
+    comment_frame = driver.find_element_by_xpath('//*[@title="Rich Text Editor, comment"]')
+    driver.switch_to.frame(comment_frame)
+    comment_body = driver.switch_to_active_element()
+    comment_body.send_keys(comment_text)
+    driver.find_element_by_id('post_comment').click()
+    driver.switch_to.default_content()
+    posted_comment = driver.find_element_by_class_name('analysis_comment')
+    posted_comment.find_element_by_class_name('comment_view').click()
+    return posted_comment.text
+
+
+def comment_save_to_linked_request(driver, bug_or_change_id, problem_summary, ticket_id, update_leapfile):
     email, comment = generate_product_update_comment_linked_request(
-        driver, bug_or_change_id, problem_summary)
-    comment_create(driver, email, comment)
-    print 'Comment update notification sent to: %s' % email
+        driver, bug_or_change_id, problem_summary, ticket_id, update_leapfile)
+    if ticket_id:
+        copy_comment = client_comment_create(ticket_id, comment)
+        comment_create(driver, '',
+                       'Comment in Ticket %s:\n\n%s' % (ticket_id, copy_comment))
+        print 'Comment update notification posted to Request copied from Ticket: %s' % ticket_id
+    else:
+        comment_create(driver, email, comment)
+        print 'Comment update notification posted to Request sent to: %s' % email
 
 
 def comment_save_to_request_on_notification(driver):
@@ -242,6 +340,9 @@ def set_request_solution(driver, update_version):
     solution_desc.send_keys(Keys.CONTROL, 'a')
     solution_desc.send_keys('%s Upgrade' % update_version)
     print 'Solution updated'
+
+
+import time
 
 
 def select_dropdown_item(driver, button_id, item_id):
@@ -288,19 +389,31 @@ def set_product_version_unknown_if_empty(driver):
         select_dropdown_item(driver, 'x:654027363.4:mkr:ButtonImage', 'x:654027363.86:adr:78')
 
 
-def apply_changes_to_linked_requests(driver, pslr):
+def update_linked_requests(driver, pslr, update_leapfile):
     for bug_or_change_id in pslr.keys():
         for rid in pslr[bug_or_change_id].requests:
             go_to_request(driver, rid)
             set_product_version_unknown_if_empty(driver)
-            comment_save_to_linked_request(driver, bug_or_change_id,
-                                           pslr[bug_or_change_id].problem_summary)
+            ticket_id_element = driver.find_element_by_id('ctl00_ContentPlaceHolder1_textfield6')
+            ticket_id = ticket_id_element.get_attribute('value')
+            problem_summary = pslr[bug_or_change_id].problem_summary
+            comment_save_to_linked_request(driver,
+                                           bug_or_change_id,
+                                           problem_summary,
+                                           ticket_id,
+                                           update_leapfile,
+                                           )
+            if update_leapfile:
+                email_address, email_body = generate_leapfile_email_body(driver,
+                                                                         bug_or_change_id,
+                                                                         problem_summary)
+                send_leapfile(email_address, email_body)
             set_request_solution(driver, release_info.update_version)
             set_request_pending_status(driver, 'Completed')
             set_request_status(driver, 'Closed')
 
 
-def apply_changes_to_requests_on_notification(driver, rids_on_notification):
+def update_requests_on_notification(driver, rids_on_notification):
     for rid in rids_on_notification:
         if go_to_request(driver, rid):
             comment_save_to_request_on_notification(driver)
@@ -311,9 +424,7 @@ def apply_changes_to_requests_on_notification(driver, rids_on_notification):
 def prompt_for_release_info(release_info):
     print 'Starting Product Release Auto-notification..'
     print 'This application will automatically generate request comments in %s ' \
-          'and trigger emails to customers. Choose product, specify version, ' \
-          'and select cells from the Google worksheet to build problem/change list. ' \
-          % settings.app_title_assert
+          'and trigger emails to customers.' % settings.app_title_assert
     on_notification = []
     while True:
         while True:
@@ -349,7 +460,7 @@ def prompt_for_release_info(release_info):
                                    'test sheet titled: "%s %s Test Sheet." '
                                    'Non-integer cells will be omitted. '
                                    '(e.g. B8:B19, B21:B26): ' % (bug_or_change,
-                                                                 product,
+                                                                 settings.products_acronyms[product],
                                                                  update_version))
             if cell_range:
                 break
@@ -382,14 +493,14 @@ def prompt_for_release_info(release_info):
                 print 'Invalid entry.'
 
 
-def product_update_processor(driver, use_test_data=False):
+def product_update_processor(driver, args):
     release_data = namedtuple('Release_Info', ['product_name',
                                                'update_version',
                                                'bug_or_change',
                                                'cell_range',
                                                'on_notification'])
     global release_info
-    if use_test_data:
+    if args.test_data:
         release_info = release_data(settings.test_release_info['product_name'],
                                     settings.test_release_info['update_version'],
                                     settings.test_release_info['bug_or_change'],
@@ -400,25 +511,9 @@ def product_update_processor(driver, use_test_data=False):
     item_list = get_item_number_list(release_info.cell_range,
                                      settings.products_acronyms[release_info.product_name],
                                      release_info.update_version)
-    psummary_linked_requests = get_psummary_linked_requests(item_list, release_info.bug_or_change)
-    apply_changes_to_linked_requests(driver, psummary_linked_requests)
-    apply_changes_to_requests_on_notification(driver, release_info.on_notification)
-
-
-
-def client_login(driver):
-    username = driver.find_element_by_id('req1')
-    username.send_keys(settings.client_username)
-    password = driver.find_element_by_id('req2')
-    password.send_keys(settings.client_password)
-    login = driver.find_element_by_class_name('blueLoginBtn')
-    login.click()
-
-
-def open_client_ticket(driver, ticket_id):
-    tickets = element_wait(driver, 'Tickets', By.LINK_TEXT)
-    tickets.click()
-    driver.get(settings.ticket_url + ticket_id)
+    pslr = get_psummary_linked_requests(item_list, release_info.bug_or_change)
+    update_linked_requests(driver, pslr, args.update_leapfile)
+    update_requests_on_notification(driver, release_info.on_notification)
 
 
 import urllib2
@@ -503,9 +598,6 @@ def select_product_version(driver, product_version):
             break
 
 
-import time
-
-
 def enter_client_ticket_data_into_request(driver, ticket_data):
 
     def get_popup_window(driver, open_windows_before_popup):
@@ -552,7 +644,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                 break
         driver.switch_to.window(driver.window_handles[0])
 
-    def upload_and_delete_attachments(driver):
+    def upload_attachments(driver):
         file_list = os.listdir(settings.attachments_path)
         if file_list:
             element_wait(driver, 'x:324881036.5:mkr:ti4', By.ID).click()
@@ -567,7 +659,6 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                              By.ID).send_keys(file_path)
                 driver.find_element_by_id(
                     'ctl00_ContentPlaceHolder1_dialogInfo_tmpl_btnUpload').click()
-                os.remove(file_path)
             element_wait(driver, '//img[@title="Back"]', By.XPATH).click()
 
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field6', By.ID).send_keys(ticket_data['customer_id'])
@@ -587,7 +678,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                                                                        ticket_data['sql_version'],
                                                                        ticket_data['mail_server'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield5', By.ID).send_keys(environment_details)
-    upload_and_delete_attachments(driver)
+    upload_attachments(driver)
     problem_desc_tab = element_wait(driver, 'x:324881036.1:mkr:ti0', By.ID)
     problem_desc_tab.click()
     frame_wait(driver, 'ctl00_ContentPlaceHolder1_tabMain_htmlsys_field36_contentIframe')
@@ -603,7 +694,7 @@ def copy_ticket_from_client_to_app(driver, ticket_id):
         sql = ('select sys_request_id, usr_ticket_id, sys_problemsummary '
                'from request where usr_ticket_id = %s and '
                'sys_problemsummary = "%s"') % (ticket_id, problem_summary)
-        cursor = connect_to_db().cursor()
+        cursor = db_connect().cursor()
         cursor.execute(sql)
         row = cursor.fetchone()
         cursor.close()
@@ -621,12 +712,42 @@ def copy_ticket_from_client_to_app(driver, ticket_id):
     confirm_request_saved(ticket_details['problem_summary'])
 
 
+def send_leapfile(email_address, email_body):
 
-def open_browser_connect_to_site(site, assert_text):
-    dvr = webdriver.Firefox()
-    dvr.get(site)
-    assert assert_text == dvr.title
-    return dvr
+    def download_file_from_fileserver():
+        response = urllib2.urlopen(os.path.join(settings.fileserver_url,
+                                                product_acronym.lower(),
+                                                release_info.update_version,
+                                                file_name))
+        local_file_path = os.path.join(settings.attachments_path, file_name)
+        f = open(local_file_path, 'w')
+        f.write(response.read())
+        print 'File downloaded successfully:', file_name
+        f.close()
+
+    product_acronym = settings.products_acronyms[release_info.product_name]
+    version = release_info.update_version.replace('.', '')
+    file_name = ''.join((product_acronym.upper(), version, 'p.zip'))
+    if file_name not in os.listdir(settings.attachments_path):
+        download_file_from_fileserver()
+    driver = open_browser_connect_to_site(settings.leapfile_url, settings.leapfile_title_assert)
+    driver.find_element_by_id('employeeLoginButton').click()
+    username = element_wait(driver, 'userID', By.ID)
+    username.send_keys(settings.leapfile_username)
+    driver.find_element_by_id('password').send_keys(settings.leapfile_password)
+    driver.find_element_by_xpath('//input[@name="logon"]').click()
+    driver.find_element_by_class_name('transfer-button').click()
+    driver.find_element_by_id('contactList').send_keys(email_address)
+    message_subject = '%s %s' % (release_info.product_name, release_info.update_version)
+    driver.find_element_by_id('s').send_keys(message_subject)
+    driver.switch_to.frame('m___Frame')
+    driver.find_element_by_id('xEditingArea').send_keys(email_body)
+    driver.switch_to.default_content()
+    driver.find_element_by_xpath('//input[@name="basic"]').click()
+    driver.find_element_by_xpath('//input[@name="file0"]').send_keys(
+        os.path.join(settings.attachments_path, file_name))
+    driver.find_element_by_id('UploadAndSend').click()
+    driver.quit()
 
 
 import argparse
@@ -634,7 +755,8 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-u', '--update_notifier', help='Run automatic update notifier.', action='store_true')
+    parser.add_argument('-u', '--update_notifier', help='Run update notifier.', action='store_true')
+    parser.add_argument('-l', '--update_leapfile', help='Send update with Leapfile', action='store_true')
     parser.add_argument('-t', '--test_data', help='Run update notifier with test data.', action='store_true')
     parser.add_argument('-c', '--copy_ticket', help='Copy ticket to request')
     args = parser.parse_args()
@@ -642,9 +764,15 @@ def main():
         driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
         login_analyst(driver)
         product_update_processor(driver, args.test_data)
+    elif args.update_leapfile:
+        driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
+        login_analyst(driver)
+        product_update_processor(driver, args)
     elif args.copy_ticket:
         driver = open_browser_connect_to_site(settings.client_url, settings.client_title_assert)
         copy_ticket_from_client_to_app(driver, args.copy_ticket)
+    for f in os.listdir(settings.attachments_path):
+        os.remove(os.path.join(settings.attachments_path, f))
     driver.quit()
 
 
