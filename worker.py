@@ -15,6 +15,11 @@ def element_wait(driver, element, by_attr, wait_seconds=10):
         EC.presence_of_element_located((by_attr, element)))
 
 
+def elements_wait(driver, element, by_attr, wait_seconds=10):
+    return WebDriverWait(driver, wait_seconds).until(
+        EC.presence_of_all_elements_located((by_attr, element)))
+
+
 def frame_wait(driver, frame):
     return WebDriverWait(driver, 10).until(
         EC.frame_to_be_available_and_switch_to_it(frame)
@@ -84,12 +89,6 @@ def client_login(driver):
     login.click()
 
 
-def open_client_ticket(driver, ticket_id):
-    tickets = element_wait(driver, 'Tickets', By.LINK_TEXT)
-    tickets.click()
-    driver.get(settings.ticket_url + ticket_id)
-
-
 import gspread
 
 
@@ -134,13 +133,14 @@ def db_connect():
     try:
         return pyodbc.connect(''.join(db_connect_string))
     except:
-        raise Exception('SQL Error: Failed to connect to server: ' +
-                        db_connect_string[0] +
-                        db_connect_string[1] +
-                        db_connect_string[2] +
-                        db_connect_string[3] +
-                        'PWD=********;' +
-                        db_connect_string[5])
+        raise Exception(''.join(('SQL Error: Failed to connect to server: ',
+                                 db_connect_string[0],
+                                 db_connect_string[1],
+                                 db_connect_string[2],
+                                 db_connect_string[3],
+                                 'PWD=********;',
+                                 db_connect_string[5],
+                                 )))
 
 
 import inspect
@@ -227,7 +227,7 @@ def collect_cust_fname_email(driver):
 
 def generate_product_update_comment_request_on_notification(driver):
     def get_comment():
-        template = open(settings.templates_path + '/on_notification_notification.html')
+        template = open(''.join((settings.templates_path, '/on_notification_notification.html')))
         text = template.read()
         template.close()
         return text
@@ -278,22 +278,34 @@ def generate_leapfile_email_body(driver, item_number, item_summary):
     return email_address, email_body
 
 
-def comment_create(driver, email_address, comment_text):
+def comment_create(driver, email_address, comment_text, input_tab='html'):
     comments = element_wait(driver, 'x:324881036.4:mkr:ti3', By.ID)
     comments.click()
-    new_comment = element_wait(driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAddCommnt', By.ID)
+    new_comment = element_wait(
+        driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAddCommnt', By.ID)
     new_comment.click()
-    comment_body_html = element_wait(driver, 'HTML', By.LINK_TEXT)
-    comment_body_html.click()
-    frame_wait(driver, 1)
-    comment_body = element_wait(driver, '//textarea[1]', By.XPATH)
-    comment_body.send_keys(comment_text)
+    if input_tab == 'design':
+        comment_body_design = element_wait(driver, 'Design', By.LINK_TEXT)
+        comment_body_design.click()
+        frame_wait(driver, 0)
+        comment_body = driver.switch_to_active_element()
+        comment_body.send_keys(comment_text)
+    elif input_tab == 'html':
+        comment_body_html = element_wait(driver, 'HTML', By.LINK_TEXT)
+        comment_body_html.click()
+        frame_wait(driver, 1)
+        comment_body = driver.switch_to_active_element()
+        comment_body.send_keys(comment_text)
     driver.switch_to.default_content()
-    enter_email_address = element_wait(driver, 'ctl00_ContentPlaceHolder1_tbFreeInputEmail', By.ID)
-    enter_email_address.send_keys(email_address)
-    add_email_address = element_wait(driver, 'ctl00_ContentPlaceHolder1_imgAddFreeInputEmail', By.ID)
-    add_email_address.click()
-    save_comment = element_wait(driver, 'ctl00_ContentPlaceHolder1_imgSave', By.ID)
+    if email_address:
+        enter_email_address = element_wait(
+            driver, 'ctl00_ContentPlaceHolder1_tbFreeInputEmail', By.ID)
+        enter_email_address.send_keys(email_address)
+        add_email_address = element_wait(
+            driver, 'ctl00_ContentPlaceHolder1_imgAddFreeInputEmail', By.ID)
+        add_email_address.click()
+    save_comment = element_wait(
+        driver, 'ctl00_ContentPlaceHolder1_imgSave', By.ID)
     save_comment.click()
 
 
@@ -301,7 +313,7 @@ def client_comment_create(ticket_id, comment_text):
     driver = open_browser_connect_to_site(
         settings.client_url, settings.client_title_assert)
     client_login(driver)
-    open_client_ticket(driver, ticket_id.get_attribute('value'))
+    driver.get(''.join((settings.ticket_url, ticket_id.get_attribute('value'))))
     comment_frame = driver.find_element_by_xpath('//*[@title="Rich Text Editor, comment"]')
     driver.switch_to.frame(comment_frame)
     comment_body = driver.switch_to_active_element()
@@ -346,9 +358,10 @@ import time
 
 
 def select_dropdown_item(driver, button_id, item_id):
+    time.sleep(0.5)
     dropdown_button = element_wait(driver, button_id, By.ID)
     dropdown_button.click()
-    time.sleep(1)
+    time.sleep(0.5)
     item = element_wait(driver, item_id, By.ID)
     item.click()
 
@@ -387,6 +400,48 @@ def set_product_version_unknown_if_empty(driver):
     selected_item_text = selected_item.find_element_by_tag_name('a').get_attribute('innerHTML')
     if not selected_item_text:
         select_dropdown_item(driver, 'x:654027363.4:mkr:ButtonImage', 'x:654027363.86:adr:78')
+
+
+def send_leapfile(email_address, email_body):
+
+    def download_file_from_fileserver():
+        response = urllib2.urlopen(os.path.join(settings.fileserver_url,
+                                                product_acronym.lower(),
+                                                release_info.update_version,
+                                                file_name))
+        local_file_path = os.path.join(settings.attachments_path, file_name)
+        f = open(local_file_path, 'w')
+        f.write(response.read())
+        print 'File downloaded successfully:', file_name
+        f.close()
+
+    product_acronym = settings.products_acronyms[release_info.product_name]
+    version = release_info.update_version.replace('.', '')
+    file_name = ''.join((product_acronym.upper(), version, 'p.zip'))
+    if file_name not in os.listdir(settings.attachments_path):
+        download_file_from_fileserver()
+    driver = open_browser_connect_to_site(settings.leapfile_url, settings.leapfile_title_assert)
+    driver.find_element_by_id('employeeLoginButton').click()
+    username = element_wait(driver, 'userID', By.ID)
+    username.send_keys(settings.leapfile_username)
+    driver.find_element_by_id('password').send_keys(settings.leapfile_password)
+    driver.find_element_by_xpath('//input[@name="logon"]').click()
+    driver.find_element_by_class_name('transfer-button').click()
+    driver.find_element_by_id('contactList').send_keys(email_address)
+    message_subject = '%s %s' % (release_info.product_name, release_info.update_version)
+    driver.find_element_by_id('s').send_keys(message_subject)
+    driver.switch_to.frame('m___Frame')
+    driver.find_element_by_id('xEditingArea').send_keys(email_body)
+    driver.switch_to.default_content()
+    driver.find_element_by_xpath('//input[@name="basic"]').click()
+    driver.find_element_by_xpath('//input[@name="file0"]').send_keys(
+        os.path.join(settings.attachments_path, file_name))
+    driver.find_element_by_id('UploadAndSend').click()
+    for i in range(60):
+        time.sleep(10)
+        if element_wait(driver, 'h1', By.TAG_NAME).text == 'Transfer Confirmation':
+            break
+    driver.quit()
 
 
 def update_linked_requests(driver, pslr, update_leapfile):
@@ -520,9 +575,7 @@ import urllib2
 import os
 
 
-def save_attachments(fieldset):
-    attach_container = fieldset.find_element_by_class_name('main_attachments')
-    attachments = attach_container.find_elements_by_tag_name('a')
+def save_attachments(attachments):
     file_list = []
     for a in attachments:
         response = urllib2.urlopen(a.get_attribute('href'))
@@ -533,36 +586,72 @@ def save_attachments(fieldset):
     return file_list
 
 
-def build_ticket_dict(driver, ticket_id):
+def get_ticket_comments(driver):
+
+    def clean_html(html):
+        return html[html.index('<span'):].replace('  ', '').replace('\t', '')
+
+    comments = []
+    comment_elements = elements_wait(driver, 'single_comment', By.CLASS_NAME)
+    for c in comment_elements:
+        loc = c.location_once_scrolled_into_view
+        driver.execute_script('window.scrollTo(%s, %s);' % (loc['x'], loc['y']))
+        if not c.find_elements_by_class_name('lastComment'):
+            expand_comment = c.find_element_by_class_name('comment_view')
+            expand_comment.click()
+        heading = element_wait(c, 'publisher', By.CLASS_NAME)
+        publish_comment_elements = c.find_elements_by_class_name('publsh_comt')
+        comment = publish_comment_elements[0]
+        if len(publish_comment_elements) == 2:
+            attach_container = publish_comment_elements[1]
+            attachments = attach_container.find_elements_by_tag_name('a')
+        comments.append({'publisher': heading.find_element_by_tag_name('span').text,
+                         'timestamp': c.find_element_by_class_name('comment_date').text,
+                         'comment': comment.text,
+                         'comment_html': clean_html(c.get_attribute('innerHTML')),
+                         'attachments': save_attachments(attachments) if attachments else None,
+                         })
+    return comments[::-1]
+
+
+def build_ticket_field_dict(driver, ticket_id):
+
     def get_element_by_name(fieldset, name):
         return fieldset.find_element_by_xpath('//input[@name="%s"]' % name).get_attribute('value')
+
     def get_element_by_class(fieldset, class_name):
         return fieldset.find_element_by_class_name('%s' % class_name).text
+
     ticket_details = element_wait(driver, 'ticket_details', By.CLASS_NAME)
     ticket_details.click()
     fieldset = element_wait(driver, 'usualValidate', By.ID).find_element_by_tag_name('fieldset')
-    return {'ticket_id': ticket_id,
-            'customer_id': fieldset.find_element_by_xpath('//div[@class="formRight"]/span').text,
-            'contact_name': get_element_by_name(fieldset, 'contact'),
-            'email': get_element_by_name(fieldset, 'email'),
-            'phone': get_element_by_name(fieldset, 'phone'),
-            'region': get_element_by_class(fieldset, 'ticket_region_view'),
-            'product': get_element_by_class(fieldset, 'ticket_products'),
-            'product_version': get_element_by_name(fieldset, 'product_version'),
-            'oper_sys': get_element_by_class(fieldset, 'select_os_ticket'),
-            'sql_version': get_element_by_class(fieldset, 'select_sql_ticket'),
-            'mail_server': get_element_by_name(fieldset, 'mail_s'),
-            'problem_summary': get_element_by_name(fieldset, 'summary'),
-            'problem_description': fieldset.find_element_by_xpath(
-                '//textarea[@name="description"]').get_attribute('innerHTML').replace(
-                    '&lt;p&gt;', '').replace('&lt;/p&gt;', '').replace('&nbsp;', ''),
-            'attachments': save_attachments(fieldset)
-            }
+    attach_container = fieldset.find_element_by_class_name('main_attachments')
+    attachments = attach_container.find_elements_by_tag_name('a')
+    ticket_dict = {'ticket_id': ticket_id,
+                   'customer_id': fieldset.find_element_by_xpath('//div[@class="formRight"]/span').text,
+                   'contact_name': get_element_by_name(fieldset, 'contact'),
+                   'email': get_element_by_name(fieldset, 'email'),
+                   'phone': get_element_by_name(fieldset, 'phone'),
+                   'region': get_element_by_class(fieldset, 'ticket_region_view'),
+                   'product': get_element_by_class(fieldset, 'ticket_products'),
+                   'product_version': get_element_by_name(fieldset, 'product_version'),
+                   'oper_sys': get_element_by_class(fieldset, 'select_os_ticket'),
+                   'sql_version': get_element_by_class(fieldset, 'select_sql_ticket'),
+                   'mail_server': get_element_by_name(fieldset, 'mail_s'),
+                   'problem_summary': get_element_by_name(fieldset, 'summary'),
+                   'problem_description': fieldset.find_element_by_xpath(
+                       '//textarea[@name="description"]').get_attribute('innerHTML').replace(
+                       '&lt;p&gt;', '').replace('&lt;/p&gt;', '').replace('&nbsp;', ''),
+                   'ticket_attachments': save_attachments(attachments),
+                   }
+    ticket_details.click()
+    ticket_dict['comments'] = get_ticket_comments(driver)
+    return ticket_dict
 
 
 def get_client_ticket_details(driver, ticket_id):
-    open_client_ticket(driver, ticket_id)
-    ticket_details = build_ticket_dict(driver, ticket_id)
+    driver.get(''.join((settings.ticket_url, ticket_id)))
+    ticket_details = build_ticket_field_dict(driver, ticket_id)
     return ticket_details
 
 
@@ -600,21 +689,21 @@ def select_product_version(driver, product_version):
 
 def enter_client_ticket_data_into_request(driver, ticket_data):
 
-    def get_popup_window(driver, open_windows_before_popup):
+    def get_popup_window(open_windows_before_popup):
         for w in driver.window_handles:
             if w not in open_windows_before_popup:
                 return w
 
-    def open_popup(driver, selector_id):
+    def open_popup(selector_id):
         existing_windows = driver.window_handles
         request_type = element_wait(driver, selector_id, By.ID)
         request_type.click()
         time.sleep(1)
-        pop_up = get_popup_window(driver, existing_windows)
+        pop_up = get_popup_window(existing_windows)
         driver.switch_to.window(pop_up)
 
-    def select_request_type(driver, product):
-        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field33')
+    def select_request_type(product):
+        open_popup('ctl00_ContentPlaceHolder1_hlsys_field33')
         product_list = []
         for p in settings.products_acronyms:
             product_list.append(p)
@@ -631,8 +720,8 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
             clear.click()
         driver.switch_to.window(driver.window_handles[0])
 
-    def select_region(driver, region):
-        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field43selsite')
+    def select_region(region):
+        open_popup('ctl00_ContentPlaceHolder1_hlsys_field43selsite')
         app_regions = driver.find_elements_by_tag_name('a')
         uk_regions = ('Europe', 'Middle East')
         for r in app_regions:
@@ -644,7 +733,19 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
                 break
         driver.switch_to.window(driver.window_handles[0])
 
-    def upload_attachments(driver):
+    def enter_problem_description():
+        problem_desc_tab = element_wait(driver, 'x:324881036.1:mkr:ti0', By.ID)
+        problem_desc_tab.click()
+        frame_wait(driver, 'ctl00_ContentPlaceHolder1_tabMain_htmlsys_field36_contentIframe')
+        html_field = driver.switch_to_active_element()
+        html_field.send_keys(ticket_data['problem_description'])
+        driver.switch_to.default_content()
+
+    def enter_comments():
+        for c in ticket_data['comments']:
+            comment_create(driver, '', c['comment_html'])
+
+    def upload_attachments():
         file_list = os.listdir(settings.attachments_path)
         if file_list:
             element_wait(driver, 'x:324881036.5:mkr:ti4', By.ID).click()
@@ -665,7 +766,7 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield2', By.ID).send_keys(ticket_data['contact_name'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield3', By.ID).send_keys(ticket_data['email'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield4', By.ID).send_keys(ticket_data['phone'])
-    select_region(driver, ticket_data['region'])
+    select_region(ticket_data['region'])
     request_source_dropdown_id, select_web_submission_id = 'x:654027360.3:mkr:Button', 'x:654027360.13:adr:5'
     select_dropdown_item(driver, request_source_dropdown_id, select_web_submission_id)
     caller_status_dropdown_id, select_customer_id = 'x:654027362.3:mkr:Button', 'x:654027362.10:adr:2'
@@ -673,18 +774,14 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
     select_product_version(driver, get_version_ints(ticket_data['product_version']))
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield6', By.ID).send_keys(ticket_data['ticket_id'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field35', By.ID).send_keys(ticket_data['problem_summary'])
-    select_request_type(driver, ticket_data['product'])
+    select_request_type(ticket_data['product'])
     environment_details = "OS: %s\nSQL Server: %s\nMail Server: %s" % (ticket_data['oper_sys'],
                                                                        ticket_data['sql_version'],
                                                                        ticket_data['mail_server'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield5', By.ID).send_keys(environment_details)
-    upload_attachments(driver)
-    problem_desc_tab = element_wait(driver, 'x:324881036.1:mkr:ti0', By.ID)
-    problem_desc_tab.click()
-    frame_wait(driver, 'ctl00_ContentPlaceHolder1_tabMain_htmlsys_field36_contentIframe')
-    html_field = driver.switch_to_active_element()
-    html_field.send_keys(ticket_data['problem_description'])
-    driver.switch_to.default_content()
+    enter_problem_description()
+    enter_comments()
+    upload_attachments()
     click_save(driver)
 
 
@@ -709,45 +806,8 @@ def copy_ticket_from_client_to_app(driver, ticket_id):
     login_analyst(driver)
     create_new_request(driver)
     enter_client_ticket_data_into_request(driver, ticket_details)
+    time.sleep(3)
     confirm_request_saved(ticket_details['problem_summary'])
-
-
-def send_leapfile(email_address, email_body):
-
-    def download_file_from_fileserver():
-        response = urllib2.urlopen(os.path.join(settings.fileserver_url,
-                                                product_acronym.lower(),
-                                                release_info.update_version,
-                                                file_name))
-        local_file_path = os.path.join(settings.attachments_path, file_name)
-        f = open(local_file_path, 'w')
-        f.write(response.read())
-        print 'File downloaded successfully:', file_name
-        f.close()
-
-    product_acronym = settings.products_acronyms[release_info.product_name]
-    version = release_info.update_version.replace('.', '')
-    file_name = ''.join((product_acronym.upper(), version, 'p.zip'))
-    if file_name not in os.listdir(settings.attachments_path):
-        download_file_from_fileserver()
-    driver = open_browser_connect_to_site(settings.leapfile_url, settings.leapfile_title_assert)
-    driver.find_element_by_id('employeeLoginButton').click()
-    username = element_wait(driver, 'userID', By.ID)
-    username.send_keys(settings.leapfile_username)
-    driver.find_element_by_id('password').send_keys(settings.leapfile_password)
-    driver.find_element_by_xpath('//input[@name="logon"]').click()
-    driver.find_element_by_class_name('transfer-button').click()
-    driver.find_element_by_id('contactList').send_keys(email_address)
-    message_subject = '%s %s' % (release_info.product_name, release_info.update_version)
-    driver.find_element_by_id('s').send_keys(message_subject)
-    driver.switch_to.frame('m___Frame')
-    driver.find_element_by_id('xEditingArea').send_keys(email_body)
-    driver.switch_to.default_content()
-    driver.find_element_by_xpath('//input[@name="basic"]').click()
-    driver.find_element_by_xpath('//input[@name="file0"]').send_keys(
-        os.path.join(settings.attachments_path, file_name))
-    driver.find_element_by_id('UploadAndSend').click()
-    driver.quit()
 
 
 import argparse
@@ -764,16 +824,18 @@ def main():
         driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
         login_analyst(driver)
         product_update_processor(driver, args.test_data)
+        driver.quit()
     elif args.update_leapfile:
         driver = open_browser_connect_to_site(settings.app_url, settings.app_title_assert)
         login_analyst(driver)
         product_update_processor(driver, args)
+        driver.quit()
     elif args.copy_ticket:
         driver = open_browser_connect_to_site(settings.client_url, settings.client_title_assert)
         copy_ticket_from_client_to_app(driver, args.copy_ticket)
+        driver.quit()
     for f in os.listdir(settings.attachments_path):
         os.remove(os.path.join(settings.attachments_path, f))
-    driver.quit()
 
 
 if __name__ == '__main__':
