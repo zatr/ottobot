@@ -28,6 +28,9 @@ test_release_info = {'product_name': 'Product1',
                      'cell_range': 'A1:A10',
                      'on_notification': [12345, 67890]}
 
+new_support_request_page = 'ReqInfo.aspx?reqclass=(Default)'
+incoming_email_page = 'UserEmailPending.aspx'
+
 google_user = 'google_user@gmail.com'
 google_pass = 'pass'
 doc_name = '%s %s document'
@@ -39,6 +42,19 @@ client_title_assert = 'page title'
 client_username = 'user'
 client_password = 'pass'
 ticket_id = '12345'
+
+app_client_analysts = {'jdoe': 'Jane Doe',
+                       'jwoo': 'John Woo',
+                       'dsum': 'Dim Sum'
+                       }
+app_client_regions = {'NE': ('New York', 'Boston',),
+                      'SE': ('Atlanta', 'Miami',),
+                      'W': ('Los Angeles', 'San Francisco',)
+                      }
+app_region_analyst = {'NE': 'jdoe',
+                      'SE': 'jwoo',
+                      'W': 'dsum'
+                      }
 
 leapfile_url = 'http://site.leapfile.com'
 leapfile_title_assert = 'Page title'
