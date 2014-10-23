@@ -26,7 +26,7 @@ class ProductUpdateProcessorTest(unittest.TestCase):
             self.skipTest(ProductUpdateProcessorTest)
 
     def test_product_update(self):
-        worker.product_update_processor(self.driver, use_test_data=True)
+        worker.product_update_processor(self.driver)
 
 
 class CopyTicketFromClientToAppTest(unittest.TestCase):

@@ -80,6 +80,12 @@ def go_to_item(driver, problem_or_change, item_id):
                                                 item_id))
 
 
+def get_popup_window(driver, open_windows_before_popup):
+    for w in driver.window_handles:
+        if w not in open_windows_before_popup:
+            return w
+
+
 def client_login(driver):
     username = driver.find_element_by_id('req1')
     username.send_keys(settings.client_username)
@@ -278,24 +284,17 @@ def generate_leapfile_email_body(driver, item_number, item_summary):
     return email_address, email_body
 
 
-def comment_create(driver, email_address, comment_text, input_tab='html'):
+def comment_create(driver, email_address, comment_text, customer_author=None, customer_id=None):
     comments = element_wait(driver, 'x:324881036.4:mkr:ti3', By.ID)
     comments.click()
     new_comment = element_wait(
         driver, 'ctl00_ContentPlaceHolder1_tabMain_btnAddCommnt', By.ID)
     new_comment.click()
-    if input_tab == 'design':
-        comment_body_design = element_wait(driver, 'Design', By.LINK_TEXT)
-        comment_body_design.click()
-        frame_wait(driver, 0)
-        comment_body = driver.switch_to_active_element()
-        comment_body.send_keys(comment_text)
-    elif input_tab == 'html':
-        comment_body_html = element_wait(driver, 'HTML', By.LINK_TEXT)
-        comment_body_html.click()
-        frame_wait(driver, 1)
-        comment_body = driver.switch_to_active_element()
-        comment_body.send_keys(comment_text)
+    comment_body_html = element_wait(driver, 'HTML', By.LINK_TEXT)
+    comment_body_html.click()
+    frame_wait(driver, 1)
+    comment_body = driver.switch_to_active_element()
+    comment_body.send_keys(comment_text)
     driver.switch_to.default_content()
     if email_address:
         enter_email_address = element_wait(
@@ -304,6 +303,26 @@ def comment_create(driver, email_address, comment_text, input_tab='html'):
         add_email_address = element_wait(
             driver, 'ctl00_ContentPlaceHolder1_imgAddFreeInputEmail', By.ID)
         add_email_address.click()
+    if customer_author:
+        existing_windows = driver.window_handles
+        driver.find_element_by_id('ctl00_ContentPlaceHolder1_imgSelUser').click()
+        time.sleep(1)
+        pop_up = get_popup_window(driver, existing_windows)
+        driver.switch_to.window(pop_up)
+        driver.find_element_by_id('ctl00_ContentPlaceHolder1_hlClear').click()
+        driver.switch_to.window(driver.window_handles[0])
+        driver.find_element_by_id('ctl00_ContentPlaceHolder1_imgSelEUser').click()
+        time.sleep(1)
+        pop_up = get_popup_window(driver, existing_windows)
+        driver.switch_to.window(pop_up)
+        cust_id_field = driver.find_element_by_id(
+            'ctl00_ContentPlaceHolder1_textsys_field1')
+        cust_id_field.send_keys(customer_id)
+        cust_id_field.send_keys(Keys.ENTER)
+        element_wait(driver,
+                     'ctl00_ContentPlaceHolder1_dgResult_it0_0_hlfield1',
+                     By.ID).click()
+        driver.switch_to.window(driver.window_handles[0])
     save_comment = element_wait(
         driver, 'ctl00_ContentPlaceHolder1_imgSave', By.ID)
     save_comment.click()
@@ -689,17 +708,12 @@ def select_product_version(driver, product_version):
 
 def enter_client_ticket_data_into_request(driver, ticket_data):
 
-    def get_popup_window(open_windows_before_popup):
-        for w in driver.window_handles:
-            if w not in open_windows_before_popup:
-                return w
-
     def open_popup(selector_id):
         existing_windows = driver.window_handles
         request_type = element_wait(driver, selector_id, By.ID)
         request_type.click()
         time.sleep(1)
-        pop_up = get_popup_window(existing_windows)
+        pop_up = get_popup_window(driver, existing_windows)
         driver.switch_to.window(pop_up)
 
     def select_request_type(product):
@@ -743,7 +757,11 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
 
     def enter_comments():
         for c in ticket_data['comments']:
-            comment_create(driver, '', c['comment_html'])
+            comment_create(driver,
+                           '',
+                           c['comment_html'],
+                           True if c['publisher'] != settings.analyst else False,
+                           ticket_data['customer_id'])
 
     def upload_attachments():
         file_list = os.listdir(settings.attachments_path)
