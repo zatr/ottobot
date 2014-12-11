@@ -26,6 +26,16 @@ def frame_wait(driver, frame):
     )
 
 
+def switch_to_frame_usermenu(driver):
+    driver.switch_to.default_content()
+    frame_wait(driver, 'UserMenu')
+
+
+def switch_to_frame_innercontentfrm(driver):
+    switch_to_frame_usermenu(driver)
+    frame_wait(driver, 'innerContentFrm')
+
+
 def open_browser():
     try:
         driver = webdriver.Firefox()
@@ -78,12 +88,6 @@ def go_to_item(driver, problem_or_change, item_id):
                                                 problem_or_change,
                                                 problem_or_change,
                                                 item_id))
-
-
-def get_popup_window(driver, open_windows_before_popup):
-    for w in driver.window_handles:
-        if w not in open_windows_before_popup:
-            return w
 
 
 def client_login(driver):
@@ -284,7 +288,53 @@ def generate_leapfile_email_body(driver, item_number, item_summary):
     return email_address, email_body
 
 
-def comment_create(driver, email_address, comment_text, customer_author=None, customer_id=None):
+def get_table_items(table, item_id):
+    items = []
+    for item in table:
+        if item_id in item.get_attribute('id'):
+            items.append(item)
+    return items
+
+
+def open_popup(driver, selector_id):
+    existing_windows = driver.window_handles
+    element = element_wait(driver, selector_id, By.ID)
+    element.click()
+    time.sleep(1)
+    for w in driver.window_handles:
+        if w not in existing_windows:
+            driver.switch_to_window(w)
+
+
+def select_analyst(driver, selector, analyst):
+    open_popup(driver, selector)
+    if analyst is None:
+        clear = driver.find_element_by_id('ctl00_ContentPlaceHolder1_hlClear')
+        clear.click()
+    else:
+        table = elements_wait(driver, '//tr/td/a', By.XPATH)
+        item_id = 'ctl00_ContentPlaceHolder1_dg_it0'
+        items = get_table_items(table, item_id)
+        for i in items:
+            if i.text == analyst:
+                i.click()
+                break
+    driver.switch_to.window(driver.window_handles[0])
+
+
+def select_customer(driver, selector, customer_id):
+    open_popup(driver, selector)
+    cust_id_field = driver.find_element_by_id(
+        'ctl00_ContentPlaceHolder1_textsys_field1')
+    cust_id_field.send_keys(customer_id)
+    cust_id_field.send_keys(Keys.ENTER)
+    element_wait(driver,
+                 'ctl00_ContentPlaceHolder1_dgResult_it0_0_hlfield1',
+                 By.ID).click()
+    driver.switch_to.window(driver.window_handles[0])
+
+
+def comment_create(driver, email_address, comment_text, analyst_author=None, customer_id=None):
     comments = element_wait(driver, 'x:324881036.4:mkr:ti3', By.ID)
     comments.click()
     new_comment = element_wait(
@@ -303,26 +353,11 @@ def comment_create(driver, email_address, comment_text, customer_author=None, cu
         add_email_address = element_wait(
             driver, 'ctl00_ContentPlaceHolder1_imgAddFreeInputEmail', By.ID)
         add_email_address.click()
-    if customer_author:
-        existing_windows = driver.window_handles
-        driver.find_element_by_id('ctl00_ContentPlaceHolder1_imgSelUser').click()
-        time.sleep(1)
-        pop_up = get_popup_window(driver, existing_windows)
-        driver.switch_to.window(pop_up)
-        driver.find_element_by_id('ctl00_ContentPlaceHolder1_hlClear').click()
-        driver.switch_to.window(driver.window_handles[0])
-        driver.find_element_by_id('ctl00_ContentPlaceHolder1_imgSelEUser').click()
-        time.sleep(1)
-        pop_up = get_popup_window(driver, existing_windows)
-        driver.switch_to.window(pop_up)
-        cust_id_field = driver.find_element_by_id(
-            'ctl00_ContentPlaceHolder1_textsys_field1')
-        cust_id_field.send_keys(customer_id)
-        cust_id_field.send_keys(Keys.ENTER)
-        element_wait(driver,
-                     'ctl00_ContentPlaceHolder1_dgResult_it0_0_hlfield1',
-                     By.ID).click()
-        driver.switch_to.window(driver.window_handles[0])
+    if analyst_author:
+        select_analyst(driver, 'ctl00_ContentPlaceHolder1_imgSelUser', analyst_author)
+    else:
+        select_analyst(driver, 'ctl00_ContentPlaceHolder1_imgSelUser', None)
+        select_customer(driver, 'ctl00_ContentPlaceHolder1_imgSelEUser', customer_id)
     save_comment = element_wait(
         driver, 'ctl00_ContentPlaceHolder1_imgSave', By.ID)
     save_comment.click()
@@ -611,7 +646,7 @@ def get_ticket_comments(driver):
         return html[html.index('<span'):].replace('  ', '').replace('\t', '')
 
     comments = []
-    comment_elements = elements_wait(driver, 'single_comment', By.CLASS_NAME)
+    comment_elements = driver.find_elements_by_class_name('single_comment')
     for c in comment_elements:
         loc = c.location_once_scrolled_into_view
         driver.execute_script('window.scrollTo(%s, %s);' % (loc['x'], loc['y']))
@@ -621,9 +656,9 @@ def get_ticket_comments(driver):
         heading = element_wait(c, 'publisher', By.CLASS_NAME)
         publish_comment_elements = c.find_elements_by_class_name('publsh_comt')
         comment = publish_comment_elements[0]
+        attachments = None
         if len(publish_comment_elements) == 2:
-            attach_container = publish_comment_elements[1]
-            attachments = attach_container.find_elements_by_tag_name('a')
+            attachments = publish_comment_elements[1].find_elements_by_tag_name('a')
         comments.append({'publisher': heading.find_element_by_tag_name('span').text,
                          'timestamp': c.find_element_by_class_name('comment_date').text,
                          'comment': comment.text,
@@ -633,12 +668,18 @@ def get_ticket_comments(driver):
     return comments[::-1]
 
 
+def get_dict_key(value, dictionary):
+    for k in dictionary.keys():
+        if value in dictionary[k]:
+            return k
+
+
 def build_ticket_field_dict(driver, ticket_id):
 
-    def get_element_by_name(fieldset, name):
+    def get_with_name(fieldset, name):
         return fieldset.find_element_by_xpath('//input[@name="%s"]' % name).get_attribute('value')
 
-    def get_element_by_class(fieldset, class_name):
+    def get_with_class(fieldset, class_name):
         return fieldset.find_element_by_class_name('%s' % class_name).text
 
     ticket_details = element_wait(driver, 'ticket_details', By.CLASS_NAME)
@@ -647,35 +688,40 @@ def build_ticket_field_dict(driver, ticket_id):
     attach_container = fieldset.find_element_by_class_name('main_attachments')
     attachments = attach_container.find_elements_by_tag_name('a')
     ticket_dict = {'ticket_id': ticket_id,
+                   'assigned_analyst': get_dict_key(get_with_class(fieldset, 'chzn-single'),
+                                                    settings.app_client_analysts),
                    'customer_id': fieldset.find_element_by_xpath('//div[@class="formRight"]/span').text,
-                   'contact_name': get_element_by_name(fieldset, 'contact'),
-                   'email': get_element_by_name(fieldset, 'email'),
-                   'phone': get_element_by_name(fieldset, 'phone'),
-                   'region': get_element_by_class(fieldset, 'ticket_region_view'),
-                   'product': get_element_by_class(fieldset, 'ticket_products'),
-                   'product_version': get_element_by_name(fieldset, 'product_version'),
-                   'oper_sys': get_element_by_class(fieldset, 'select_os_ticket'),
-                   'sql_version': get_element_by_class(fieldset, 'select_sql_ticket'),
-                   'mail_server': get_element_by_name(fieldset, 'mail_s'),
-                   'problem_summary': get_element_by_name(fieldset, 'summary'),
+                   'contact_name': get_with_name(fieldset, 'contact'),
+                   'email': get_with_name(fieldset, 'email'),
+                   'phone': get_with_name(fieldset, 'phone'),
+                   'region': get_dict_key(get_with_class(fieldset, 'ticket_region_view'),
+                                          settings.app_client_regions),
+                   'product': get_with_class(fieldset, 'ticket_products'),
+                   'product_version': get_with_name(fieldset, 'product_version'),
+                   'oper_sys': get_with_class(fieldset, 'select_os_ticket'),
+                   'sql_version': get_with_class(fieldset, 'select_sql_ticket'),
+                   'mail_server': get_with_name(fieldset, 'mail_s'),
+                   'problem_summary': get_with_name(fieldset, 'summary'),
                    'problem_description': fieldset.find_element_by_xpath(
                        '//textarea[@name="description"]').get_attribute('innerHTML').replace(
                        '&lt;p&gt;', '').replace('&lt;/p&gt;', '').replace('&nbsp;', ''),
                    'ticket_attachments': save_attachments(attachments),
                    }
     ticket_details.click()
+    ticket_dict['ownedby_analyst'] = settings.app_region_analyst[ticket_dict['region']]
     ticket_dict['comments'] = get_ticket_comments(driver)
     return ticket_dict
 
 
 def get_client_ticket_details(driver, ticket_id):
+    ticket_id = str(ticket_id)
     driver.get(''.join((settings.ticket_url, ticket_id)))
     ticket_details = build_ticket_field_dict(driver, ticket_id)
     return ticket_details
 
 
 def create_new_request(driver, base_url=settings.app_url):
-    driver.get('%s/ReqInfo.aspx?reqclass=(Default)' % base_url)
+    driver.get('%s/%s' % (base_url, settings.new_support_request_page))
 
 
 def click_save(driver):
@@ -708,16 +754,8 @@ def select_product_version(driver, product_version):
 
 def enter_client_ticket_data_into_request(driver, ticket_data):
 
-    def open_popup(selector_id):
-        existing_windows = driver.window_handles
-        request_type = element_wait(driver, selector_id, By.ID)
-        request_type.click()
-        time.sleep(1)
-        pop_up = get_popup_window(driver, existing_windows)
-        driver.switch_to.window(pop_up)
-
     def select_request_type(product):
-        open_popup('ctl00_ContentPlaceHolder1_hlsys_field33')
+        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field33')
         product_list = []
         for p in settings.products_acronyms:
             product_list.append(p)
@@ -735,14 +773,10 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
         driver.switch_to.window(driver.window_handles[0])
 
     def select_region(region):
-        open_popup('ctl00_ContentPlaceHolder1_hlsys_field43selsite')
+        open_popup(driver, 'ctl00_ContentPlaceHolder1_hlsys_field43selsite')
         app_regions = driver.find_elements_by_tag_name('a')
-        uk_regions = ('Europe', 'Middle East')
         for r in app_regions:
             if r.text == region:
-                r.click()
-                break
-            elif r.text == 'UK' and region in uk_regions:
                 r.click()
                 break
         driver.switch_to.window(driver.window_handles[0])
@@ -756,12 +790,18 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
         driver.switch_to.default_content()
 
     def enter_comments():
+        analysts = []
+        for k in settings.app_client_analysts.keys():
+            analysts.append(settings.app_client_analysts[k])
         for c in ticket_data['comments']:
             comment_create(driver,
                            '',
                            c['comment_html'],
-                           True if c['publisher'] != settings.analyst else False,
-                           ticket_data['customer_id'])
+                           get_dict_key(c['publisher'],
+                                        settings.app_client_analysts
+                                        ) if c['publisher'] in analysts else None,
+                           ticket_data['customer_id'],
+                           )
 
     def upload_attachments():
         file_list = os.listdir(settings.attachments_path)
@@ -790,6 +830,9 @@ def enter_client_ticket_data_into_request(driver, ticket_data):
     caller_status_dropdown_id, select_customer_id = 'x:654027362.3:mkr:Button', 'x:654027362.10:adr:2'
     select_dropdown_item(driver, caller_status_dropdown_id, select_customer_id)
     select_product_version(driver, get_version_ints(ticket_data['product_version']))
+    select_analyst(driver, 'ctl00_ContentPlaceHolder1_hlsys_field23', ticket_data['ownedby_analyst'])
+    select_analyst(driver, 'ctl00_ContentPlaceHolder1_hlsys_field4', ticket_data['assigned_analyst'])
+    set_request_pending_status(driver, 'With Upper Level Support')
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textfield6', By.ID).send_keys(ticket_data['ticket_id'])
     element_wait(driver, 'ctl00_ContentPlaceHolder1_textsys_field35', By.ID).send_keys(ticket_data['problem_summary'])
     select_request_type(ticket_data['product'])
